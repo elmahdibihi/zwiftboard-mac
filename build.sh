@@ -19,6 +19,7 @@ cp -R "$ROOT_DIR/Sources" "$SRC_DIR/"
 rm -rf "$APP_DIR" "$ZIP_PATH"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BUILD_DIR/release/ZwiftBoard" "$APP_DIR/Contents/MacOS/ZwiftBoard"
+cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 strip "$APP_DIR/Contents/MacOS/ZwiftBoard"
 
 cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
@@ -28,6 +29,8 @@ cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
 <dict>
     <key>CFBundleExecutable</key>
     <string>ZwiftBoard</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.zwiftboard.mac</string>
     <key>CFBundleName</key>

@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="Resources/AppIcon.png" alt="ZwiftBoard Icon" width="110"/>
+
 # ZwiftBoard for macOS
 
 **A lightweight, native macOS menu bar bridge for Zwift Click (V1 & V2) controllers on MyWhoosh.**
