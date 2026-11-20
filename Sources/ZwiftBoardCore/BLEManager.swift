@@ -56,21 +56,6 @@ public final class BLEManager: NSObject, ObservableObject {
         var keepaliveTimer: Timer?
     }
 
-    private func log(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
-        if let data = line.data(using: .utf8) {
-            let url = URL(fileURLWithPath: "/tmp/zwiftboard.log")
-            if FileManager.default.fileExists(atPath: url.path),
-               let handle = try? FileHandle(forWritingTo: url) {
-                _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: data)
-                try? handle.close()
-            } else {
-                try? data.write(to: url)
-            }
-        }
-    }
-
     public override init() {
         let savedMode = UserDefaults.standard.string(forKey: "ZwiftBoard.Mode")
         self.mode = ControllerMode(rawValue: savedMode ?? "") ?? .double
@@ -81,7 +66,6 @@ public final class BLEManager: NSObject, ObservableObject {
             self.autoFocusMyWhoosh = UserDefaults.standard.bool(forKey: "ZwiftBoard.AutoFocus")
         }
         super.init()
-        log("INIT axTrusted=\(KeySender.isAccessibilityTrusted(prompt: false)) mode=\(mode.rawValue)")
         self.central = CBCentralManager(delegate: self, queue: .main)
         Task {
             self.isSignedInToZwift = await unlockClient.isSignedIn
@@ -90,7 +74,13 @@ public final class BLEManager: NSObject, ObservableObject {
 
     public func startScanning() {
         guard central.state == .poweredOn else { return }
+        guard KeySender.isMyWhooshRunning() else {
+            stopScanning()
+            lastEvent = "Waiting for MyWhoosh…"
+            return
+        }
         isScanning = true
+        lastEvent = "Scanning for Zwift Click…"
         central.scanForPeripherals(withServices: nil, options: [
             CBCentralManagerScanOptionAllowDuplicatesKey: false
         ])
@@ -101,13 +91,27 @@ public final class BLEManager: NSObject, ObservableObject {
         central.stopScan()
     }
 
-    public func reconnectAll() {
-        for (_, p) in peripherals {
-            central.cancelPeripheralConnection(p)
+    public func disconnectAll() {
+        stopScanning()
+        let activePeripherals = Array(peripherals.values)
+        for session in sessions.values {
+            session.keepaliveTimer?.invalidate()
+            let lifted = holdTracker.releaseAll(sessionID: session.sessionID)
+            for key in lifted {
+                KeySender.send(key: key, down: false, autoFocusMyWhoosh: false)
+            }
         }
         peripherals.removeAll()
         sessions.removeAll()
         pods.removeAll()
+        for p in activePeripherals {
+            central.cancelPeripheralConnection(p)
+        }
+        lastEvent = "Disconnected (MyWhoosh closed)"
+    }
+
+    public func reconnectAll() {
+        disconnectAll()
         startScanning()
     }
 
@@ -228,11 +232,9 @@ public final class BLEManager: NSObject, ObservableObject {
                 if holdTracker.press(key: key, sessionID: session.sessionID) {
                     KeySender.send(key: key, down: true, autoFocusMyWhoosh: autoFocusMyWhoosh)
                     lastEvent = "\(btn.rawValue) → \(key.rawValue.uppercased())"
-                    log("PRESS \(btn.rawValue) -> \(key.rawValue) ax=\(KeySender.isAccessibilityTrusted(prompt: false))")
                 }
             } else {
                 lastEvent = "\(btn.rawValue) (unmapped in \(mode == .single ? "Single" : "Double"))"
-                log("PRESS_UNMAPPED \(btn.rawValue) mode=\(mode.rawValue)")
             }
         }
 
@@ -275,7 +277,7 @@ extension BLEManager: CBCentralManagerDelegate {
 
         MainActor.assumeIsolated {
             let id = peripheral.identifier
-            guard self.peripherals[id] == nil else { return }
+            guard self.isScanning, self.peripherals[id] == nil else { return }
             self.peripherals[id] = peripheral
             peripheral.delegate = self
             self.sessions[id] = PodSession(side: side)

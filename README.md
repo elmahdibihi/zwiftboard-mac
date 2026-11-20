@@ -25,7 +25,7 @@ MyWhoosh supports virtual shifting (**MyShift**) via keyboard shortcuts (`I` / `
 
 - **Native `CoreBluetooth` + `AppKit`** — zero Electron, Python, or background runtime bloat (`~134 KB` zipped)
 - **Click V1 & V2 Ready** — supports both `FC82` and legacy Zwift GATT services, with mirrored Left/Right pod deduplication (`HoldTracker`)
-- **Sleep-Proof Connection** — `RideOn` keepalive every 3s plus proactive 55s idle-reset (`0x18`) so pods don't drop into a 35s sleep
+- **Sleep-Proof & Battery-Safe** — keeps pods awake with `RideOn` + `0x18` while riding, and automatically disconnects all pods and quits when MyWhoosh closes so your Click batteries don't drain between rides
 - **MyWhoosh Integration** — one-click **Launch / Focus MyWhoosh** and **Auto-Focus on Click**
 - **Single & Double Modes** — use the Right Pod alone without any Zwift login, or both pods together (with optional Zwift `d-lock` sign-in if the Left Pod locks)
 

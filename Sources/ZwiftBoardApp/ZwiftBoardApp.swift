@@ -34,7 +34,41 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             }
             .store(in: &cancellables)
 
+        let wsCenter = NSWorkspace.shared.notificationCenter
+        wsCenter.addObserver(
+            self,
+            selector: #selector(workspaceAppLaunched(_:)),
+            name: NSWorkspace.didLaunchApplicationNotification,
+            object: nil
+        )
+        wsCenter.addObserver(
+            self,
+            selector: #selector(workspaceAppTerminated(_:)),
+            name: NSWorkspace.didTerminateApplicationNotification,
+            object: nil
+        )
+
         updateStatusButton()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        ble?.disconnectAll()
+    }
+
+    @objc private func workspaceAppLaunched(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              app.bundleIdentifier == KeySender.myWhooshBundleID else { return }
+        ble.startScanning()
+    }
+
+    @objc private func workspaceAppTerminated(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              app.bundleIdentifier == KeySender.myWhooshBundleID,
+              !KeySender.isMyWhooshRunning() else { return }
+        ble.disconnectAll()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            NSApp.terminate(nil)
+        }
     }
 
     private func updateStatusButton() {
@@ -51,6 +85,8 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         // 1. Bluetooth & Pods status
         if ble.bluetoothState != .poweredOn {
             menu.addItem(disabledItem("Bluetooth: \(btStateLabel)"))
+        } else if !KeySender.isMyWhooshRunning() {
+            menu.addItem(disabledItem("Waiting for MyWhoosh to open… (controllers sleep)"))
         } else if ble.pods.isEmpty {
             menu.addItem(disabledItem("Scanning for Zwift Click… (press a button to wake)"))
         } else {
