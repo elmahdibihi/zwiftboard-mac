@@ -13,11 +13,22 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     private let logger = Logger(subsystem: "com.zwiftboard.mac", category: "lifecycle")
 
     private var myWhooshWasRunning = false
-    private var launchedAt = Date()
+    private var lastUserActivityAt = Date()
     private var lifecycleTimer: Timer?
     private var isQuitting = false
 
+    private static let bundleID = "com.zwiftboard.mac"
+    private static let idleWithoutMyWhooshTimeout: TimeInterval = 900 // 15 min
+
     static func main() {
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .filter { $0.processIdentifier != myPID && !$0.isTerminated }
+        if !others.isEmpty {
+            // Single-instance guard: never run two copies fighting over BLE or double-sending keys
+            exit(0)
+        }
+
         let app = NSApplication.shared
         let delegate = ZwiftBoardDelegate()
         app.delegate = delegate
@@ -27,8 +38,11 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ble = BLEManager()
+        ble.onButtonActivity = { [weak self] in
+            self?.lastUserActivityAt = Date()
+        }
         myWhooshWasRunning = KeySender.isMyWhooshRunning()
-        launchedAt = Date()
+        lastUserActivityAt = Date()
         logger.info("Launched axTrusted=\(KeySender.isAccessibilityTrusted(prompt: false)) myWhooshRunning=\(self.myWhooshWasRunning)")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -58,7 +72,6 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             object: nil
         )
 
-        // Fallback watcher ensures we disconnect & exit cleanly even if a notification is missed
         lifecycleTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.checkMyWhooshLifecycle()
@@ -93,10 +106,10 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         let running = KeySender.isMyWhooshRunning()
         if running {
             myWhooshWasRunning = true
+            lastUserActivityAt = Date()
             return
         }
-        // Quit immediately once MyWhoosh closes after a session, or after 3 min if MyWhoosh never opens
-        if myWhooshWasRunning || Date().timeIntervalSince(launchedAt) >= 180 {
+        if myWhooshWasRunning || Date().timeIntervalSince(lastUserActivityAt) >= Self.idleWithoutMyWhooshTimeout {
             shutdownWithDisconnect(reason: myWhooshWasRunning ? "MyWhoosh closed" : "Idle timeout without MyWhoosh")
         }
     }
@@ -121,6 +134,7 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        lastUserActivityAt = Date()
         menu.removeAllItems()
 
         // 1. Bluetooth & Pods status
@@ -141,7 +155,14 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             let sorted = ble.pods.values.sorted { $0.side.rawValue < $1.side.rawValue }
             for pod in sorted {
                 let bat = pod.battery.map { " · \($0)%" } ?? ""
-                let state = pod.isLockedWarning ? " (Locked — Sign in to Zwift)" : (pod.isReady ? " ✓" : " …")
+                let state: String
+                if pod.isReconnecting {
+                    state = " (Reconnecting…)"
+                } else if pod.isReady {
+                    state = pod.needsZwiftSignInHint ? " ✓ (Sign in if '−' locks)" : " ✓"
+                } else {
+                    state = " …"
+                }
                 menu.addItem(disabledItem("\(pod.side.displayName)\(bat)\(state)"))
             }
         }
@@ -185,17 +206,21 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
         menu.addItem(.separator())
 
-        // 4. Mode & Shift Swap
-        for m in ControllerMode.allCases {
-            let item = NSMenuItem(title: "Mode: \(m.rawValue)", action: #selector(selectMode(_:)), keyEquivalent: "")
+        // 4. Keymap Presets & Active Summary
+        for line in MyWhooshKeymap.summaryLines(preset: ble.preset, swapShift: ble.swapShiftKeys) {
+            menu.addItem(disabledItem("  \(line)"))
+        }
+
+        for p in KeymapPreset.allCases {
+            let item = NSMenuItem(title: "Mapping: \(p.rawValue)", action: #selector(selectPreset(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = m.rawValue
-            item.state = (ble.mode == m) ? .on : .off
+            item.representedObject = p.rawValue
+            item.state = (ble.preset == p) ? .on : .off
             menu.addItem(item)
         }
 
         let swapItem = NSMenuItem(
-            title: "Swap Shift Keys (I / K)",
+            title: "Swap Shift Direction (+ Easier / − Harder)",
             action: #selector(toggleSwapShift),
             keyEquivalent: ""
         )
@@ -261,6 +286,7 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     @objc private func launchMyWhoosh() {
+        lastUserActivityAt = Date()
         KeySender.launchMyWhoosh()
     }
 
@@ -268,10 +294,10 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         ble.autoFocusMyWhoosh.toggle()
     }
 
-    @objc private func selectMode(_ sender: NSMenuItem) {
+    @objc private func selectPreset(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
-              let mode = ControllerMode(rawValue: raw) else { return }
-        ble.mode = mode
+              let preset = KeymapPreset(rawValue: raw) else { return }
+        ble.preset = preset
     }
 
     @objc private func toggleSwapShift() {
@@ -279,7 +305,7 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     @objc private func reconnectAll() {
-        launchedAt = Date()
+        lastUserActivityAt = Date()
         ble.reconnectAll()
     }
 
@@ -291,7 +317,7 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Sign In to Zwift (Optional Unlock)"
-        alert.informativeText = "Only needed if the Left pod shows Locked. Credentials are sent directly to Zwift to obtain a session token and are never stored."
+        alert.informativeText = "Only needed if the Left pod's minus/arrow buttons lock after ~1 minute. Right pod (+ / B / Y) works without signing in. Credentials are sent directly to Zwift and are never stored."
         alert.addButton(withTitle: "Sign In")
         alert.addButton(withTitle: "Cancel")
 

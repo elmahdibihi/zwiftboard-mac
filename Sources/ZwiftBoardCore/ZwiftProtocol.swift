@@ -151,53 +151,79 @@ public enum ZwiftProtocol {
         return pressed
     }
 
-    /// Extracts the protobuf challenge payload from a `FF 03 00 <payload>` SyncTX frame.
-    public static func challengePayload(fromSyncTXFrame frame: Data) -> Data? {
+    /// Extracts the protobuf challenge payload from a `FF 03 00 <payload>` frame.
+    public static func challengePayload(fromFrame frame: Data) -> Data? {
         guard frame.count >= 4, frame[0] == 0xFF, frame[1] == 0x03 else { return nil }
         return frame.subdata(in: 3..<frame.count)
     }
 }
 
-public enum ControllerMode: String, CaseIterable, Sendable {
-    case double = "Double (Both Pods)"
-    case single = "Single (Right Pod)"
+public enum KeymapPreset: String, CaseIterable, Sendable {
+    case shiftingOnly = "Shifting Only (Safe)"
+    case shiftingAndSteering = "Shifting + Steering"
 }
 
 public enum KeyCode: String, Sendable, Hashable {
-    case i, k, u, enter, left, right, up, down, space, esc
+    case i, k, u, left, right
+
+    public var displayLabel: String {
+        switch self {
+        case .i: return "I (Shift Down)"
+        case .k: return "K (Shift Up)"
+        case .u: return "U (HUD Toggle)"
+        case .left: return "← (Steer Left)"
+        case .right: return "→ (Steer Right)"
+        }
+    }
 }
 
 public struct MyWhooshKeymap: Sendable {
-    public static func key(for button: ZwiftProtocol.Button, mode: ControllerMode, swapShift: Bool) -> KeyCode? {
-        switch mode {
-        case .single:
+    /// Consistent, safe mapping for MyWhoosh:
+    /// - Never maps Enter or Space (which randomly click focused HUD buttons / Pause in MyWhoosh).
+    /// - Works seamlessly with 1 pod (Right Pod: PLUS/Y = Harder, B = Easier) OR both pods (PLUS = Harder, MIN = Easier).
+    public static func key(for button: ZwiftProtocol.Button, preset: KeymapPreset, swapShift: Bool) -> KeyCode? {
+        let shiftUp: KeyCode = swapShift ? .i : .k
+        let shiftDown: KeyCode = swapShift ? .k : .i
+
+        switch preset {
+        case .shiftingOnly:
             switch button {
-            case .plus:  return swapShift ? .k : .i
-            case .b:     return swapShift ? .i : .k
-            case .a:     return .right
-            case .z:     return .left
-            case .y:     return .u
-            default:     return nil
+            case .plus, .y: return shiftUp
+            case .min, .b:  return shiftDown
+            default:        return nil
             }
-        case .double:
+        case .shiftingAndSteering:
             switch button {
-            case .plus:  return swapShift ? .i : .k
-            case .min:   return swapShift ? .k : .i
-            case .left:  return .left
-            case .right: return .right
-            case .up:    return .up
-            case .down:  return .down
-            case .a:     return .right
-            case .b:     return .enter
-            case .y:     return .u
-            case .z:     return .left
+            case .plus:       return shiftUp
+            case .min, .b:    return shiftDown
+            case .left, .z:   return .left
+            case .right, .a:  return .right
+            case .y:          return .u
+            case .up, .down:  return nil
             }
+        }
+    }
+
+    public static func summaryLines(preset: KeymapPreset, swapShift: Bool) -> [String] {
+        let harderKey = swapShift ? "I" : "K"
+        let easierKey = swapShift ? "K" : "I"
+        switch preset {
+        case .shiftingOnly:
+            return [
+                "Harder (\(harderKey)): + or Y",
+                "Easier (\(easierKey)): − or B"
+            ]
+        case .shiftingAndSteering:
+            return [
+                "Harder (\(harderKey)): +   ·   Easier (\(easierKey)): − or B",
+                "Steer (←/→): Arrows or Z/A   ·   HUD (U): Y"
+            ]
         }
     }
 }
 
 /// Deduplicates mirrored button frames from Left + Right pods and ensures held keys
-/// are cleanly released if a pod disconnects mid-press.
+/// are cleanly released if a pod disconnects or keymap settings change mid-press.
 public final class HoldTracker: @unchecked Sendable {
     private let lock = NSLock()
     private var globalCounts: [KeyCode: Int] = [:]
@@ -264,5 +290,15 @@ public final class HoldTracker: @unchecked Sendable {
             }
         }
         return toLift
+    }
+
+    /// Force-releases every held key across all sessions (e.g., when changing preset or shift swap).
+    public func releaseAllGlobal() -> [KeyCode] {
+        lock.lock()
+        defer { lock.unlock() }
+        let keys = Array(globalCounts.keys)
+        globalCounts.removeAll()
+        perSessionCounts.removeAll()
+        return keys
     }
 }

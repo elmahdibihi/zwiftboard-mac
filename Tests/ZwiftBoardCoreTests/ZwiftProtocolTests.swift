@@ -25,7 +25,24 @@ import Testing
     #expect(ZwiftProtocol.pressedButtons(fromAsyncFrame: minLeftPressed) == [.min, .left])
 }
 
-@Test func holdTrackerDeduplicatesMirroredPods() {
+@Test func safeMyWhooshKeymap() {
+    // Default Shifting Only never maps arrows or Enter, and PLUS/Y = K, MIN/B = I
+    #expect(MyWhooshKeymap.key(for: .plus, preset: .shiftingOnly, swapShift: false) == .k)
+    #expect(MyWhooshKeymap.key(for: .y, preset: .shiftingOnly, swapShift: false) == .k)
+    #expect(MyWhooshKeymap.key(for: .min, preset: .shiftingOnly, swapShift: false) == .i)
+    #expect(MyWhooshKeymap.key(for: .b, preset: .shiftingOnly, swapShift: false) == .i)
+    #expect(MyWhooshKeymap.key(for: .a, preset: .shiftingOnly, swapShift: false) == nil)
+    #expect(MyWhooshKeymap.key(for: .left, preset: .shiftingOnly, swapShift: false) == nil)
+
+    // Shifting + Steering keeps consistent PLUS = K, MIN/B = I, plus steering & HUD
+    #expect(MyWhooshKeymap.key(for: .plus, preset: .shiftingAndSteering, swapShift: false) == .k)
+    #expect(MyWhooshKeymap.key(for: .b, preset: .shiftingAndSteering, swapShift: false) == .i)
+    #expect(MyWhooshKeymap.key(for: .a, preset: .shiftingAndSteering, swapShift: false) == .right)
+    #expect(MyWhooshKeymap.key(for: .z, preset: .shiftingAndSteering, swapShift: false) == .left)
+    #expect(MyWhooshKeymap.key(for: .y, preset: .shiftingAndSteering, swapShift: false) == .u)
+}
+
+@Test func holdTrackerDeduplicatesAndGlobalReleases() {
     let tracker = HoldTracker()
     let leftSession = UUID()
     let rightSession = UUID()
@@ -37,11 +54,11 @@ import Testing
     #expect(tracker.release(key: .k, sessionID: rightSession) == true)
 
     #expect(tracker.press(key: .i, sessionID: leftSession) == true)
-    #expect(tracker.releaseAll(sessionID: leftSession) == [.i])
+    #expect(tracker.releaseAllGlobal() == [.i])
 }
 
 @Test func challengePayloadExtraction() {
     let frame = Data([0xFF, 0x03, 0x00, 0xAA, 0xBB, 0xCC])
-    #expect(ZwiftProtocol.challengePayload(fromSyncTXFrame: frame) == Data([0xAA, 0xBB, 0xCC]))
-    #expect(ZwiftProtocol.challengePayload(fromSyncTXFrame: Data([0xFF, 0x03, 0x00])) == nil)
+    #expect(ZwiftProtocol.challengePayload(fromFrame: frame) == Data([0xAA, 0xBB, 0xCC]))
+    #expect(ZwiftProtocol.challengePayload(fromFrame: Data([0xFF, 0x03, 0x00])) == nil)
 }

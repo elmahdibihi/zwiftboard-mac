@@ -25,25 +25,25 @@
 
 MyWhoosh supports virtual shifting (**MyShift**) via keyboard shortcuts (`I` / `K`), while Zwift Click controllers speak a proprietary Bluetooth Low Energy protocol (`FC82` / `00000001-...`). **ZwiftBoard** sits quietly in your macOS menu bar and translates every Click press into clean, low-latency keystrokes.
 
-- **Native `CoreBluetooth` + `AppKit`** — zero Electron, Python, or background runtime bloat (`~134 KB` zipped)
-- **Click V1 & V2 Ready** — supports both `FC82` and legacy Zwift GATT services, with mirrored Left/Right pod deduplication (`HoldTracker`)
-- **Sleep-Proof & Battery-Safe** — keeps pods awake with `RideOn` + `0x18` while riding, and automatically disconnects all pods and quits when MyWhoosh closes so your Click batteries don't drain between rides
-- **MyWhoosh Integration** — one-click **Launch / Focus MyWhoosh** and **Auto-Focus on Click**
-- **Single & Double Modes** — use the Right Pod alone without any Zwift login, or both pods together (with optional Zwift `d-lock` sign-in if the Left Pod locks)
+- **Native `CoreBluetooth` + `AppKit`** — zero Electron, Python, or background runtime bloat
+- **Click V1 & V2 Ready** — discovers all Zwift GATT services (`FC82` & legacy), deduplicates mirrored Left/Right pod frames (`HoldTracker`), and enforces a 30ms minimum tap hold for Unreal Engine frame polling
+- **Idle-Proof & Battery-Safe** — tracks all inbound pod heartbeats, handles scheduled `0x18` idle resets with 12s zombie recovery + OS-level hardware auto-reconnect, and automatically disconnects all pods and quits when MyWhoosh closes
+- **Safe MyWhoosh Mapping** — never maps `Enter` or `Space` (preventing accidental MyWhoosh HUD clicks or pauses), and works with 1 pod or both pods out of the box
 
 ---
 
-## Default MyWhoosh Keymap
+## MyWhoosh Keymap Presets
 
-| Mode | Controller Button | Key Sent | MyWhoosh Action |
+| Preset | Controller Buttons | Key Sent | MyWhoosh Action |
 | :--- | :--- | :--- | :--- |
-| **Double** | `PLUS` | `K` *(swappable)* | Shift Up (Harder) |
-| **Double** | `MIN` | `I` *(swappable)* | Shift Down (Easier) |
-| **Double** | `LEFT` / `RIGHT` / `UP` / `DOWN` | Arrow Keys | Steer / Navigate |
-| **Double** | `Y` / `B` | `U` / `Return` | U-Turn / Confirm |
-| **Single** | `PLUS` | `I` *(swappable)* | Shift Down (Easier) |
-| **Single** | `B` | `K` *(swappable)* | Shift Up (Harder) |
-| **Single** | `A` / `Z` / `Y` | `→` / `←` / `U` | Steer / U-Turn |
+| **Shifting Only (Safe)** *(Default)* | `PLUS` or `Y` | `K` *(swappable)* | Shift Up (Harder) |
+| **Shifting Only (Safe)** *(Default)* | `MIN` or `B` | `I` *(swappable)* | Shift Down (Easier) |
+| **Shifting + Steering** | `PLUS` | `K` *(swappable)* | Shift Up (Harder) |
+| **Shifting + Steering** | `MIN` or `B` | `I` *(swappable)* | Shift Down (Easier) |
+| **Shifting + Steering** | `LEFT` / `Z` · `RIGHT` / `A` | `←` / `→` | Steer Left / Right |
+| **Shifting + Steering** | `Y` | `U` | Toggle Minimal HUD |
+
+> **One-Pod / No-Login Tip:** On Click V2, the **Right Pod** (`PLUS`, `B`, `Y`) works indefinitely without signing in to Zwift (`PLUS`/`Y` = Harder, `B` = Easier). Only sign in via **Sign In to Zwift (Unlock Left Pod)…** if you also want the Left Pod's `MIN` and arrow buttons to stay unlocked past ~1 minute.
 
 ---
 
@@ -57,7 +57,6 @@ MyWhoosh supports virtual shifting (**MyShift**) via keyboard shortcuts (`I` / `
 ### MyWhoosh Checklist
 - Pair your smart trainer under **Power & Controllable / Resistance** in MyWhoosh.
 - Start a **Free Ride** (virtual gears are disabled in ERG-mode workouts).
-- Use **Single (Right Pod)** mode for zero-login shifting, or **Double (Both Pods)** mode (sign in via **Sign In to Zwift** in the menu if your Left Pod shows `(Locked)`).
 
 ---
 
@@ -71,7 +70,7 @@ cd zwiftboard-mac
 ./build.sh
 ```
 
-This compiles the release binary, packages `dist/ZwiftBoard.app`, ad-hoc signs it, and outputs `dist/ZwiftBoard-macOS.zip`.
+This compiles the release binary in an isolated temp directory, packages and ad-hoc signs `ZwiftBoard.app`, and outputs `dist/ZwiftBoard-macOS.zip` (pass `./build.sh --install` to also install directly to `/Applications/ZwiftBoard.app`).
 
 ---
 

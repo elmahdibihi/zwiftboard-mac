@@ -5,6 +5,11 @@ public actor ZwiftUnlockClient {
     private static let tokenURL = URL(string: "https://secure.zwift.com/auth/realms/zwift/protocol/openid-connect/token")!
     private static let dlockURL = URL(string: "https://us-or-rly101.zwift.com/api/d-lock-service/device/authenticate")!
     private static let refreshTokenKey = "ZwiftBoard.RefreshToken"
+    private static let formAllowed: CharacterSet = {
+        var cs = CharacterSet.alphanumerics
+        cs.insert(charactersIn: "-._~")
+        return cs
+    }()
 
     private var accessToken: String?
     private var expiresAt: Date = .distantPast
@@ -20,6 +25,10 @@ public actor ZwiftUnlockClient {
 
     public init() {
         self.refreshToken = UserDefaults.standard.string(forKey: Self.refreshTokenKey)
+    }
+
+    public static func encodeFormComponent(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: formAllowed) ?? value
     }
 
     public var isSignedIn: Bool {
@@ -73,11 +82,10 @@ public actor ZwiftUnlockClient {
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 15
 
-        let body = params.map { k, v in
-            let ek = k.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? k
-            let ev = v.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? v
-            return "\(ek)=\(ev)"
-        }.joined(separator: "&")
+        let body = params
+            .sorted { $0.key < $1.key }
+            .map { k, v in "\(Self.encodeFormComponent(k))=\(Self.encodeFormComponent(v))" }
+            .joined(separator: "&")
         req.httpBody = Data(body.utf8)
 
         let (data, resp) = try await URLSession.shared.data(for: req)
