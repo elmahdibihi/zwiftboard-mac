@@ -14,13 +14,24 @@ public final class BLEManager: NSObject, ObservableObject {
         public var needsZwiftSignInHint: Bool
     }
 
+    public struct ButtonDiagnosticEvent: Equatable, Sendable {
+        public let id = UUID()
+        public let button: ZwiftProtocol.Button
+        public let mappedKey: KeyCode?
+        public let timestamp = Date()
+    }
+
     private let logger = Logger(subsystem: "com.zwiftboard.mac", category: "ble")
 
     @Published public private(set) var bluetoothState: CBManagerState = .unknown
     @Published public private(set) var isScanning: Bool = false
     @Published public private(set) var pods: [UUID: PodStatus] = [:]
     @Published public private(set) var lastEvent: String = "Waiting for Zwift Click…"
+    @Published public private(set) var lastButtonDiagnostic: ButtonDiagnosticEvent?
     @Published public private(set) var isSignedInToZwift: Bool = false
+
+    /// Set true while the Test & Auto-Fix window is open so test keystrokes stay in the test window.
+    public var suppressAutoFocus: Bool = false
 
     @Published public var preset: KeymapPreset {
         didSet {
@@ -456,10 +467,13 @@ public final class BLEManager: NSObject, ObservableObject {
         }
 
         for btn in newlyPressed {
-            if let key = MyWhooshKeymap.key(for: btn, preset: preset, swapShift: swapShiftKeys) {
+            let mapped = MyWhooshKeymap.key(for: btn, preset: preset, swapShift: swapShiftKeys)
+            lastButtonDiagnostic = ButtonDiagnosticEvent(button: btn, mappedKey: mapped)
+            if let key = mapped {
                 session.activeButtonKeys[btn] = key
                 if holdTracker.press(key: key, sessionID: session.sessionID) {
-                    KeySender.send(key: key, down: true, autoFocusMyWhoosh: autoFocusMyWhoosh)
+                    let shouldFocus = autoFocusMyWhoosh && !suppressAutoFocus
+                    KeySender.send(key: key, down: true, autoFocusMyWhoosh: shouldFocus)
                     lastEvent = "\(btn.rawValue) → \(key.displayLabel)"
                 }
             } else {

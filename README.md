@@ -28,6 +28,7 @@ MyWhoosh supports virtual shifting (**MyShift**) via keyboard shortcuts (`I` / `
 - **Native `CoreBluetooth` + `AppKit`** — zero Electron, Python, or background runtime bloat
 - **Click V1 & V2 Ready** — discovers all Zwift GATT services (`FC82` & legacy), deduplicates mirrored Left/Right pod frames (`HoldTracker`), and enforces a 30ms minimum tap hold for Unreal Engine frame polling
 - **Idle-Proof & Battery-Safe** — tracks all inbound pod heartbeats, handles scheduled `0x18` idle resets with 12s zombie recovery + OS-level hardware auto-reconnect, and automatically disconnects all pods and quits when MyWhoosh closes
+- **Pre-Ride Test & Auto-Fix Window** — opens automatically before MyWhoosh starts (or via `⌘T` in the menu bar) with a 30-gear shift simulator that verifies both BLE signal and macOS HID keystroke delivery end-to-end, plus one-click Accessibility/Bluetooth TCC repair
 - **Safe MyWhoosh Mapping** — never maps `Enter` or `Space` (preventing accidental MyWhoosh HUD clicks or pauses), and works with 1 pod or both pods out of the box
 
 ---

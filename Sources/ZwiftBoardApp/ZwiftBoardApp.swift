@@ -9,6 +9,7 @@ import ZwiftBoardCore
 final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var ble: BLEManager!
+    private var testWindowController: TestWindowController?
     private var cancellables: Set<AnyCancellable> = []
     private let logger = Logger(subsystem: "com.zwiftboard.mac", category: "lifecycle")
 
@@ -18,6 +19,7 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     private var isQuitting = false
 
     private static let bundleID = "com.zwiftboard.mac"
+    private static let showTestWindowNotification = Notification.Name("com.zwiftboard.mac.showTestWindow")
     private static let idleWithoutMyWhooshTimeout: TimeInterval = 900 // 15 min
 
     static func main() {
@@ -25,7 +27,13 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .filter { $0.processIdentifier != myPID && !$0.isTerminated }
         if !others.isEmpty {
-            // Single-instance guard: never run two copies fighting over BLE or double-sending keys
+            // Ask the running instance to open the Test & Auto-Fix window, then exit cleanly
+            DistributedNotificationCenter.default().postNotificationName(
+                showTestWindowNotification,
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
             exit(0)
         }
 
@@ -72,6 +80,13 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             object: nil
         )
 
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(openTestWindow),
+            name: Self.showTestWindowNotification,
+            object: nil
+        )
+
         lifecycleTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.checkMyWhooshLifecycle()
@@ -79,6 +94,11 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         }
 
         updateStatusButton()
+
+        // If launched before MyWhoosh is open (pre-ride), open the Test & Auto-Fix window automatically
+        if !myWhooshWasRunning {
+            openTestWindow()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -189,7 +209,15 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             menu.addItem(.separator())
         }
 
-        // 3. MyWhoosh launch / focus
+        // 3. Test & Auto-Fix + MyWhoosh launch / focus
+        let testItem = NSMenuItem(
+            title: "Test & Auto-Fix Setup…",
+            action: #selector(openTestWindow),
+            keyEquivalent: "t"
+        )
+        testItem.target = self
+        menu.addItem(testItem)
+
         let mwTitle = KeySender.isMyWhooshRunning() ? "Focus MyWhoosh" : "Launch MyWhoosh"
         let mwItem = NSMenuItem(title: mwTitle, action: #selector(launchMyWhoosh), keyEquivalent: "")
         mwItem.target = self
@@ -283,6 +311,14 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         if !KeySender.isAccessibilityTrusted(prompt: true) {
             openAccessibilitySettings()
         }
+    }
+
+    @objc private func openTestWindow() {
+        lastUserActivityAt = Date()
+        if testWindowController == nil {
+            testWindowController = TestWindowController(ble: ble)
+        }
+        testWindowController?.showWindowAndActivate()
     }
 
     @objc private func launchMyWhoosh() {
