@@ -16,23 +16,23 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
     private var simulatedGear: Int = 15
 
     private let btStatusLabel = NSTextField(labelWithString: "")
-    private let btFixButton = NSButton(title: "Fix Bluetooth", target: nil, action: nil)
+    private let btFixButton = NSButton(title: "Allow Bluetooth…", target: nil, action: nil)
 
     private let axStatusLabel = NSTextField(labelWithString: "")
     private let axFixButton = NSButton(title: "Repair Accessibility", target: nil, action: nil)
 
     private let podsStatusLabel = NSTextField(labelWithString: "")
-    private let bleFixButton = NSButton(title: "Reconnect Pods", target: nil, action: nil)
+    private let bleFixButton = NSButton(title: "Reconnect", target: nil, action: nil)
 
     private let gearLabel = NSTextField(labelWithString: "GEAR 15")
-    private let stage1Label = NSTextField(labelWithString: "1. BLE Signal: Waiting for button press…")
+    private let stage1Label = NSTextField(labelWithString: "1. BLE Signal: Waiting for Click button press…")
     private let stage2Label = NSTextField(labelWithString: "2. macOS Keystroke: Waiting…")
-    private let verdictBanner = NSTextField(wrappingLabelWithString: "Press + or B / − on your Zwift Click to verify shifting end-to-end before opening MyWhoosh.")
+    private let verdictBanner = NSTextField(wrappingLabelWithString: "Press + or B / − on your Zwift Click to test shifting before opening MyWhoosh.")
 
     init(ble: BLEManager) {
         self.ble = ble
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 470),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 480),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -58,6 +58,7 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
         startPollingIfNeeded()
         refreshStatusUI()
         NSApp.activate(ignoringOtherApps: true)
+        window?.center()
         window?.makeKeyAndOrderFront(nil)
     }
 
@@ -77,75 +78,111 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    private func makeCard() -> NSView {
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        card.layer?.cornerRadius = 10
+        card.layer?.borderWidth = 1
+        card.layer?.borderColor = NSColor.separatorColor.cgColor
+        card.translatesAutoresizingMaskIntoConstraints = false
+        return card
+    }
+
     private func buildUI(in win: NSWindow) {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        win.contentView = container
+
         let root = NSStackView()
         root.orientation = .vertical
         root.alignment = .leading
         root.spacing = 14
-        root.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 18, right: 20)
         root.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(root)
 
-        let header = NSTextField(labelWithString: "Pre-Ride Check & Auto-Fix")
-        header.font = .systemFont(ofSize: 18, weight: .bold)
-        root.addArrangedSubview(header)
+        // Header with app icon
+        let iconView = NSImageView()
+        iconView.image = NSApp.applicationIconImage
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        iconView.heightAnchor.constraint(equalToConstant: 40).isActive = true
 
-        // Checklist Box
-        let checkBox = NSBox()
-        checkBox.title = "System & Controller Health"
-        checkBox.titlePosition = .atTop
-        checkBox.translatesAutoresizingMaskIntoConstraints = false
+        let titleLabel = NSTextField(labelWithString: "Pre-Ride Check & Auto-Fix")
+        titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
+        let subLabel = NSTextField(labelWithString: "Verify Bluetooth, permissions, and shifting before launching MyWhoosh")
+        subLabel.font = .systemFont(ofSize: 12)
+        subLabel.textColor = .secondaryLabelColor
 
-        let checkStack = NSStackView()
-        checkStack.orientation = .vertical
-        checkStack.alignment = .leading
-        checkStack.spacing = 10
-        checkStack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        checkStack.translatesAutoresizingMaskIntoConstraints = false
+        let titleCol = NSStackView(views: [titleLabel, subLabel])
+        titleCol.orientation = .vertical
+        titleCol.alignment = .leading
+        titleCol.spacing = 2
 
-        btFixButton.target = self
+        let headerRow = NSStackView(views: [iconView, titleCol])
+        headerRow.orientation = .horizontal
+        headerRow.alignment = .centerY
+        headerRow.spacing = 12
+        root.addArrangedSubview(headerRow)
+
+        // Card 1: System & Controller Health
+        let healthCard = makeCard()
+        let healthStack = NSStackView()
+        healthStack.orientation = .vertical
+        healthStack.alignment = .leading
+        healthStack.spacing = 10
+        healthStack.translatesAutoresizingMaskIntoConstraints = false
+        healthCard.addSubview(healthStack)
+
+        for btn in [btFixButton, axFixButton, bleFixButton] {
+            btn.target = self
+            btn.bezelStyle = .rounded
+            btn.controlSize = .small
+            btn.setContentHuggingPriority(.required, for: .horizontal)
+        }
         btFixButton.action = #selector(fixBluetooth)
-        btFixButton.bezelStyle = .rounded
-        btFixButton.controlSize = .small
-
-        axFixButton.target = self
         axFixButton.action = #selector(repairAccessibility)
-        axFixButton.bezelStyle = .rounded
-        axFixButton.controlSize = .small
-
-        bleFixButton.target = self
         bleFixButton.action = #selector(reconnectPods)
-        bleFixButton.bezelStyle = .rounded
-        bleFixButton.controlSize = .small
 
-        checkStack.addArrangedSubview(makeCheckRow(label: btStatusLabel, button: btFixButton))
-        checkStack.addArrangedSubview(makeCheckRow(label: axStatusLabel, button: axFixButton))
-        checkStack.addArrangedSubview(makeCheckRow(label: podsStatusLabel, button: bleFixButton))
+        let row1 = makeCheckRow(label: btStatusLabel, button: btFixButton)
+        let row2 = makeCheckRow(label: axStatusLabel, button: axFixButton)
+        let row3 = makeCheckRow(label: podsStatusLabel, button: bleFixButton)
+        healthStack.addArrangedSubview(row1)
+        healthStack.addArrangedSubview(row2)
+        healthStack.addArrangedSubview(row3)
 
-        checkBox.contentView = checkStack
-        root.addArrangedSubview(checkBox)
+        NSLayoutConstraint.activate([
+            healthStack.topAnchor.constraint(equalTo: healthCard.topAnchor, constant: 12),
+            healthStack.leadingAnchor.constraint(equalTo: healthCard.leadingAnchor, constant: 14),
+            healthStack.trailingAnchor.constraint(equalTo: healthCard.trailingAnchor, constant: -14),
+            healthStack.bottomAnchor.constraint(equalTo: healthCard.bottomAnchor, constant: -12),
+            row1.widthAnchor.constraint(equalTo: healthStack.widthAnchor),
+            row2.widthAnchor.constraint(equalTo: healthStack.widthAnchor),
+            row3.widthAnchor.constraint(equalTo: healthStack.widthAnchor)
+        ])
+        root.addArrangedSubview(healthCard)
 
-        // Live Shift Simulator Box
-        let simBox = NSBox()
-        simBox.title = "End-to-End Shift Simulator (MyWhoosh Preview)"
-        simBox.titlePosition = .atTop
-        simBox.translatesAutoresizingMaskIntoConstraints = false
-
+        // Card 2: End-to-End Shift Simulator
+        let simCard = makeCard()
         let simStack = NSStackView()
         simStack.orientation = .vertical
         simStack.alignment = .centerX
         simStack.spacing = 8
-        simStack.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
         simStack.translatesAutoresizingMaskIntoConstraints = false
+        simCard.addSubview(simStack)
 
-        gearLabel.font = .monospacedDigitSystemFont(ofSize: 34, weight: .heavy)
+        gearLabel.font = .monospacedDigitSystemFont(ofSize: 32, weight: .heavy)
         gearLabel.alignment = .center
 
-        stage1Label.font = .systemFont(ofSize: 12, weight: .medium)
+        stage1Label.font = .systemFont(ofSize: 12.5, weight: .medium)
         stage1Label.textColor = .secondaryLabelColor
-        stage2Label.font = .systemFont(ofSize: 12, weight: .medium)
-        stage2Label.textColor = .secondaryLabelColor
+        stage1Label.alignment = .center
 
-        verdictBanner.font = .systemFont(ofSize: 12.5, weight: .semibold)
+        stage2Label.font = .systemFont(ofSize: 12.5, weight: .medium)
+        stage2Label.textColor = .secondaryLabelColor
+        stage2Label.alignment = .center
+
+        verdictBanner.font = .systemFont(ofSize: 12.5, weight: .medium)
         verdictBanner.alignment = .center
         verdictBanner.maximumNumberOfLines = 3
 
@@ -154,15 +191,16 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
         simStack.addArrangedSubview(stage2Label)
         simStack.addArrangedSubview(verdictBanner)
 
-        simBox.contentView = simStack
-        root.addArrangedSubview(simBox)
+        NSLayoutConstraint.activate([
+            simStack.topAnchor.constraint(equalTo: simCard.topAnchor, constant: 16),
+            simStack.leadingAnchor.constraint(equalTo: simCard.leadingAnchor, constant: 16),
+            simStack.trailingAnchor.constraint(equalTo: simCard.trailingAnchor, constant: -16),
+            simStack.bottomAnchor.constraint(equalTo: simCard.bottomAnchor, constant: -16),
+            verdictBanner.widthAnchor.constraint(equalTo: simStack.widthAnchor)
+        ])
+        root.addArrangedSubview(simCard)
 
         // Footer Buttons
-        let footer = NSStackView()
-        footer.orientation = .horizontal
-        footer.spacing = 10
-        footer.translatesAutoresizingMaskIntoConstraints = false
-
         let autoFixAllBtn = NSButton(title: "Auto-Fix Issues", target: self, action: #selector(runAutoFixAll))
         autoFixAllBtn.bezelStyle = .rounded
 
@@ -176,25 +214,21 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
         launchBtn.bezelStyle = .rounded
         launchBtn.keyEquivalent = "\r"
 
-        footer.addArrangedSubview(autoFixAllBtn)
-        footer.addArrangedSubview(spacer)
-        footer.addArrangedSubview(closeBtn)
-        footer.addArrangedSubview(launchBtn)
+        let footer = NSStackView(views: [autoFixAllBtn, spacer, closeBtn, launchBtn])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 8
         root.addArrangedSubview(footer)
 
-        let container = NSView()
-        container.addSubview(root)
-        win.contentView = container
-
         NSLayoutConstraint.activate([
-            root.topAnchor.constraint(equalTo: container.topAnchor),
-            root.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            root.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            root.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            checkBox.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -40),
-            simBox.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -40),
-            verdictBanner.widthAnchor.constraint(equalToConstant: 400),
-            footer.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -40)
+            container.widthAnchor.constraint(equalToConstant: 520),
+            root.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),
+            root.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            root.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            root.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -18),
+            healthCard.widthAnchor.constraint(equalTo: root.widthAnchor),
+            simCard.widthAnchor.constraint(equalTo: root.widthAnchor),
+            footer.widthAnchor.constraint(equalTo: root.widthAnchor)
         ])
     }
 
@@ -210,8 +244,6 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: 416).isActive = true
         return row
     }
 
@@ -247,14 +279,13 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isVisible == true else { return event }
             if self.handleReceivedKeyDown(event) {
-                return nil // consume test key so macOS does not play NSBeep
+                return nil
             }
             return event
         }
     }
 
     private func refreshStatusUI() {
-        // 1. Bluetooth
         switch ble.bluetoothState {
         case .poweredOn:
             btStatusLabel.stringValue = "✓ Bluetooth: Powered On"
@@ -274,24 +305,21 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
             btFixButton.isHidden = true
         }
 
-        // 2. Accessibility
         let axOK = KeySender.isAccessibilityTrusted(prompt: false)
         if axOK {
             axStatusLabel.stringValue = "✓ Accessibility: Enabled (Keys Active)"
             axStatusLabel.textColor = .systemGreen
-            axFixButton.title = "Re-check"
             axFixButton.isHidden = true
         } else {
-            axStatusLabel.stringValue = "✗ Accessibility: Blocked (Click Repair →)"
+            axStatusLabel.stringValue = "✗ Accessibility: Blocked"
             axStatusLabel.textColor = .systemOrange
             axFixButton.title = "Repair Accessibility"
             axFixButton.isHidden = false
         }
 
-        // 3. Pods
         let readyPods = ble.pods.values.filter(\.isReady)
         if readyPods.isEmpty {
-            podsStatusLabel.stringValue = "… Controllers: Scanning (press + on Click to wake)"
+            podsStatusLabel.stringValue = "… Controllers: Scanning (press + or − on Click to wake)"
             podsStatusLabel.textColor = .secondaryLabelColor
         } else {
             let summary = readyPods
@@ -387,19 +415,18 @@ final class TestWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func repairAccessibility() {
-        // Reset stale ad-hoc TCC entry first so macOS registers the exact running binary cleanly
         runTCCReset(service: "Accessibility")
         _ = KeySender.isAccessibilityTrusted(prompt: true)
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
-        verdictBanner.stringValue = "Toggle 'ZwiftBoard' ON in the System Settings window that just opened, then press + on your Click again."
+        verdictBanner.stringValue = "Toggle 'ZwiftBoard' ON in System Settings, then press + on your Click again."
         verdictBanner.textColor = .labelColor
         refreshStatusUI()
     }
 
     @objc private func reconnectPods() {
-        stage1Label.stringValue = "1. BLE Signal: Reconnecting… (press a button on Click to wake)"
+        stage1Label.stringValue = "1. BLE Signal: Reconnecting… (press + or − on Click to wake)"
         stage1Label.textColor = .secondaryLabelColor
         ble.reconnectAll()
         refreshStatusUI()
