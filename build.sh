@@ -6,21 +6,21 @@ CLEAN_DIR="/tmp/zwiftboard-clean-build"
 SRC_DIR="$CLEAN_DIR/src"
 BUILD_DIR="$CLEAN_DIR/out"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/ZwiftBoard.app"
+APP_DIR="$CLEAN_DIR/ZwiftBoard.app"
 ZIP_PATH="$DIST_DIR/ZwiftBoard-macOS.zip"
 
 rm -rf "$CLEAN_DIR"
-mkdir -p "$SRC_DIR"
+mkdir -p "$SRC_DIR" "$DIST_DIR"
 cp "$ROOT_DIR/Package.swift" "$SRC_DIR/"
 cp -R "$ROOT_DIR/Sources" "$SRC_DIR/"
 
 (cd "$SRC_DIR" && swift build -c release --scratch-path "$BUILD_DIR")
 
-rm -rf "$APP_DIR" "$ZIP_PATH"
+rm -rf "$DIST_DIR/ZwiftBoard.app" "$ZIP_PATH"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BUILD_DIR/release/ZwiftBoard" "$APP_DIR/Contents/MacOS/ZwiftBoard"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
-strip "$APP_DIR/Contents/MacOS/ZwiftBoard"
+strip -S -x "$APP_DIR/Contents/MacOS/ZwiftBoard"
 
 cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -53,8 +53,14 @@ EOF
 
 xattr -cr "$APP_DIR"
 codesign --force --deep --sign - "$APP_DIR"
-(cd "$DIST_DIR" && COPYFILE_DISABLE=1 zip -r -X -q "$ZIP_PATH" ZwiftBoard.app)
-rm -rf "$CLEAN_DIR"
+(cd "$CLEAN_DIR" && COPYFILE_DISABLE=1 zip -r -X -q "$ZIP_PATH" ZwiftBoard.app)
 
-echo "Packaged: $APP_DIR"
-echo "Archive:  $ZIP_PATH"
+if [[ "${1:-}" == "--install" ]]; then
+  rm -rf /Applications/ZwiftBoard.app
+  cp -R "$APP_DIR" /Applications/ZwiftBoard.app
+  codesign --verify --deep --strict /Applications/ZwiftBoard.app
+  echo "Installed: /Applications/ZwiftBoard.app"
+fi
+
+rm -rf "$CLEAN_DIR"
+echo "Archive:   $ZIP_PATH"

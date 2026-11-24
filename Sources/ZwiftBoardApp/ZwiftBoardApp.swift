@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CoreBluetooth
+import OSLog
 import ZwiftBoardCore
 
 @main
@@ -9,6 +10,12 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     private var statusItem: NSStatusItem!
     private var ble: BLEManager!
     private var cancellables: Set<AnyCancellable> = []
+    private let logger = Logger(subsystem: "com.zwiftboard.mac", category: "lifecycle")
+
+    private var myWhooshWasRunning = false
+    private var launchedAt = Date()
+    private var lifecycleTimer: Timer?
+    private var isQuitting = false
 
     static func main() {
         let app = NSApplication.shared
@@ -20,6 +27,9 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ble = BLEManager()
+        myWhooshWasRunning = KeySender.isMyWhooshRunning()
+        launchedAt = Date()
+        logger.info("Launched axTrusted=\(KeySender.isAccessibilityTrusted(prompt: false)) myWhooshRunning=\(self.myWhooshWasRunning)")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
@@ -48,23 +58,54 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             object: nil
         )
 
+        // Fallback watcher ensures we disconnect & exit cleanly even if a notification is missed
+        lifecycleTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.checkMyWhooshLifecycle()
+            }
+        }
+
         updateStatusButton()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        lifecycleTimer?.invalidate()
         ble?.disconnectAll()
     }
 
     @objc private func workspaceAppLaunched(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               app.bundleIdentifier == KeySender.myWhooshBundleID else { return }
-        ble.startScanning()
+        myWhooshWasRunning = true
+        if !ble.isScanning && ble.pods.isEmpty {
+            ble.startScanning()
+        }
     }
 
     @objc private func workspaceAppTerminated(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              app.bundleIdentifier == KeySender.myWhooshBundleID,
-              !KeySender.isMyWhooshRunning() else { return }
+              app.bundleIdentifier == KeySender.myWhooshBundleID else { return }
+        checkMyWhooshLifecycle()
+    }
+
+    private func checkMyWhooshLifecycle() {
+        guard !isQuitting else { return }
+        let running = KeySender.isMyWhooshRunning()
+        if running {
+            myWhooshWasRunning = true
+            return
+        }
+        // Quit immediately once MyWhoosh closes after a session, or after 3 min if MyWhoosh never opens
+        if myWhooshWasRunning || Date().timeIntervalSince(launchedAt) >= 180 {
+            shutdownWithDisconnect(reason: myWhooshWasRunning ? "MyWhoosh closed" : "Idle timeout without MyWhoosh")
+        }
+    }
+
+    private func shutdownWithDisconnect(reason: String) {
+        guard !isQuitting else { return }
+        isQuitting = true
+        logger.info("Shutting down: \(reason, privacy: .public)")
+        lifecycleTimer?.invalidate()
         ble.disconnectAll()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             NSApp.terminate(nil)
@@ -83,10 +124,17 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         menu.removeAllItems()
 
         // 1. Bluetooth & Pods status
-        if ble.bluetoothState != .poweredOn {
+        if ble.bluetoothState == .unauthorized {
+            let btItem = NSMenuItem(
+                title: "⚠️ Allow Bluetooth in System Settings…",
+                action: #selector(openBluetoothSettings),
+                keyEquivalent: ""
+            )
+            btItem.target = self
+            menu.addItem(btItem)
+            menu.addItem(.separator())
+        } else if ble.bluetoothState != .poweredOn {
             menu.addItem(disabledItem("Bluetooth: \(btStateLabel)"))
-        } else if !KeySender.isMyWhooshRunning() {
-            menu.addItem(disabledItem("Waiting for MyWhoosh to open… (controllers sleep)"))
         } else if ble.pods.isEmpty {
             menu.addItem(disabledItem("Scanning for Zwift Click… (press a button to wake)"))
         } else {
@@ -109,6 +157,14 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
             )
             axItem.target = self
             menu.addItem(axItem)
+
+            let axSettingsItem = NSMenuItem(
+                title: "Open Accessibility Settings…",
+                action: #selector(openAccessibilitySettings),
+                keyEquivalent: ""
+            )
+            axSettingsItem.target = self
+            menu.addItem(axSettingsItem)
             menu.addItem(.separator())
         }
 
@@ -186,8 +242,22 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         }
     }
 
+    @objc private func openBluetoothSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     @objc private func requestAccessibility() {
-        _ = KeySender.isAccessibilityTrusted(prompt: true)
+        if !KeySender.isAccessibilityTrusted(prompt: true) {
+            openAccessibilitySettings()
+        }
     }
 
     @objc private func launchMyWhoosh() {
@@ -209,6 +279,7 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     @objc private func reconnectAll() {
+        launchedAt = Date()
         ble.reconnectAll()
     }
 
@@ -256,6 +327,6 @@ final class ZwiftBoardDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     @objc private func quitApp() {
-        NSApp.terminate(nil)
+        shutdownWithDisconnect(reason: "User quit")
     }
 }

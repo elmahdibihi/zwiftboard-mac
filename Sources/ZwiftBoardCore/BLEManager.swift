@@ -1,8 +1,10 @@
 @preconcurrency import CoreBluetooth
 import Foundation
+import OSLog
 
 @MainActor
 public final class BLEManager: NSObject, ObservableObject {
+    private let logger = Logger(subsystem: "com.zwiftboard.mac", category: "ble")
     public struct PodStatus: Identifiable, Sendable {
         public let id: UUID
         public var name: String
@@ -74,13 +76,9 @@ public final class BLEManager: NSObject, ObservableObject {
 
     public func startScanning() {
         guard central.state == .poweredOn else { return }
-        guard KeySender.isMyWhooshRunning() else {
-            stopScanning()
-            lastEvent = "Waiting for MyWhoosh…"
-            return
-        }
         isScanning = true
         lastEvent = "Scanning for Zwift Click…"
+        logger.info("BLE scanning started")
         central.scanForPeripherals(withServices: nil, options: [
             CBCentralManagerScanOptionAllowDuplicatesKey: false
         ])
@@ -107,7 +105,8 @@ public final class BLEManager: NSObject, ObservableObject {
         for p in activePeripherals {
             central.cancelPeripheralConnection(p)
         }
-        lastEvent = "Disconnected (MyWhoosh closed)"
+        lastEvent = "Disconnected"
+        logger.info("BLE disconnected all peripherals")
     }
 
     public func reconnectAll() {
@@ -253,6 +252,7 @@ extension BLEManager: CBCentralManagerDelegate {
         MainActor.assumeIsolated {
             let state = central.state
             self.bluetoothState = state
+            self.logger.info("BLE state changed: \(state.rawValue)")
             if state == .poweredOn {
                 self.startScanning()
             } else {
@@ -278,6 +278,7 @@ extension BLEManager: CBCentralManagerDelegate {
         MainActor.assumeIsolated {
             let id = peripheral.identifier
             guard self.isScanning, self.peripherals[id] == nil else { return }
+            self.logger.info("Discovered \(side.displayName, privacy: .public)")
             self.peripherals[id] = peripheral
             peripheral.delegate = self
             self.sessions[id] = PodSession(side: side)
